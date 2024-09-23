@@ -149,7 +149,7 @@
           }
 
           if (highlightedSquare.name) {
-            drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, darken(highlightedSquare.color))
+            drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, 'black', true)
           }
 
           // Restore the transformation matrix to its original state
@@ -217,7 +217,7 @@
           return combined;
         }
 
-        const drawSquare = (size, x, y, name, color) => {
+        const drawSquare = (size, x, y, name, color, drawHighlighted) => {
           if (
             !isPointVisible(x, y) &&
             !isPointVisible(x + size * 8, y) &&
@@ -233,10 +233,15 @@
             mouseX > x && mouseX < (x + size * 8) &&
             mouseY > y && mouseY < (y + size * 8)
           )
-          ctx.fillStyle = 'white'
-          ctx.fillRect(x, y , size * 8, size * 8)
+          if (drawHighlighted) {
+            ctx.globalAlpha = 0.2
+          } else {
+            ctx.fillStyle = 'white'
+            ctx.fillRect(x, y , size * 8, size * 8)
+          }
           ctx.fillStyle = color
           ctx.fillRect(squareX, squareY, squareSize, squareSize)
+          ctx.globalAlpha = 1
           if (highlighted && size <= highlightedSquare.size) {
             highlightedSquare = {
               size,
