@@ -16,10 +16,21 @@
         canvas:active {
           cursor: grabbing;
         }
+        #tooltip {
+          position: absolute;
+          background-color: rgba(0, 0, 0, 0.4);
+          color: white;
+          padding: 5px;
+          border-radius: 4px;
+          pointer-events: none;
+          font-size: 12px;
+          display: none;
+        }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
+    <div id="tooltip" style="z-index: 100000;"></div>
 
     <script>
         const darken = (color, percent = 10) => {
@@ -36,17 +47,26 @@
           return 256 * 256 * 256 * +ip[0] + 256 * 256 * +ip[1] + 256 * +ip[2] + +ip[3]
         }
 
+        const updateTooltip = (text) => {
+          tooltip.style.left = panX + (mouseX * scale) + 15 + 'px'
+          tooltip.style.top = panY + (mouseY * scale) + 15 + 'px'
+          tooltip.innerHTML = text
+          tooltip.style.display = 'block'
+        }
+
+
         const PARENT_CIDR_BLOCK = '10.0.0.0/8'
         const START_OFFSET = getCidrBLockStart(PARENT_CIDR_BLOCK)
         const maxBlock = 0
         const canvas = document.getElementById('canvas')
         const ctx = canvas.getContext('2d')
+        const tooltip = document.getElementById("tooltip")
 
         // Set canvas size
         canvas.width = window.innerWidth
         canvas.height = window.innerHeight
 
-        let scale = 1 // Initial zoom level
+        let scale = 0.028 // Initial zoom level
         let scaleFactor = 1.03 // Zoom speed factor
         let panX = 0 // Initial pan x offset
         let panY = 0 // Initial pan y offset
@@ -251,7 +271,7 @@
               color,
             }
           }
-          highlighted && console.log(name)
+          highlighted && updateTooltip(name)
         }
 
         const isPointVisible = (x, y) => {
