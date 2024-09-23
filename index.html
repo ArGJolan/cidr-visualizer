@@ -56,6 +56,8 @@
         let dragStartX, dragStartY
         let squares
         let highlightedSquare
+        let smallestCIDRsContainingVP
+        let vpMinX, vpMinY, vpMaxX, vpMaxY
 
         const blocks = [
           // 10.0.0.0/8
@@ -83,8 +85,48 @@
           { block: '10.40.220.0/24', color: '#ffcccc' },
         ]
 
+        const getSafeBlocks = (block) => {
+          if (+smallestCIDRsContainingVP[0].split('/')[1] <= +block.split('/')[1]) {
+            return [block]
+          }
+          const result = []
+          for (const cornerBlock of smallestCIDRsContainingVP) {
+            if (CIDRinCIDR(cornerBlock, block)) {
+              result.push(cornerBlock)
+            }
+          }
+          return result
+        }
+
+        const CIDRinCIDR = (a, b) => {
+          const startA = getCidrBLockStart(a)
+          const stopA = getCidrBLockStart(a) + Math.pow(2, 32 - a.split('/')[1])
+          const startB = getCidrBLockStart(b)
+          const stopB = getCidrBLockStart(b) + Math.pow(2, 32 - b.split('/')[1])
+
+          return (startA > startB && startA < stopB) || (stopA > startB && stopA < stopB)
+        }
+
+        const CIDRFromIpAndRange = (start, range) => {
+          return `${startToIp(Math.floor(start / Math.pow(2, 32 - range)) * Math.pow(2, 32 - range))}/${range}`
+        }
+
         // Draw something on the canvas
         const draw = () => {
+          vpMinX = 0 / scale - panX / scale
+          vpMinY = 0 / scale - panY / scale
+          vpMaxX = window.innerWidth / scale - panX / scale
+          vpMaxY = window.innerHeight / scale - panY / scale
+
+          const smallestCIDRSuffix = 2 * Math.floor((Math.log2(scale))) + 16
+          const currentIPs = [
+            combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
+            combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
+            combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
+            combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
+          ]
+          smallestCIDRsContainingVP = currentIPs.map(currentIP => CIDRFromIpAndRange(currentIP, smallestCIDRSuffix))
+
           highlightedSquare = { size: Infinity }
           squares = []
           // Clear canvas
@@ -100,7 +142,10 @@
           ctx.scale(scale, scale)
 
           for (const block of blocks) {
-            drawCIDRBlock(block.block, block.color)
+            const safeBlocks = getSafeBlocks(block.block)
+            for (safeBlock of safeBlocks) {
+              drawCIDRBlock(safeBlock, block.color)
+            }
           }
 
           if (highlightedSquare.name) {
@@ -147,6 +192,31 @@
           return { x: evenBits, y: oddBits }
         }
 
+        function combineBinary(evenBits, oddBits) {
+          let combined = 0;
+          let evenIndex = 0;
+          let oddIndex = 0;
+          let position = 0;  // Position in the final combined number
+
+          // Continue until both evenBits and oddBits are fully processed
+          while (evenBits > 0 || oddBits > 0) {
+            if (position % 2 === 0) {
+              // Even position: Take a bit from evenBits
+              let evenBit = evenBits & 1;
+              combined |= (evenBit << position);  // Place evenBit at the current position
+              evenBits >>= 1;  // Shift right to process the next even bit
+            } else {
+              // Odd position: Take a bit from oddBits
+              let oddBit = oddBits & 1;
+              combined |= (oddBit << position);  // Place oddBit at the current position
+              oddBits >>= 1;  // Shift right to process the next odd bit
+            }
+            position++;
+          }
+
+          return combined;
+        }
+
         const drawSquare = (size, x, y, name, color) => {
           if (
             !isPointVisible(x, y) &&
@@ -156,7 +226,6 @@
           ) { return }
 
           const border = Math.log2(size + 1) / Math.sqrt(scale)
-          // console.log({border, size})
           const squareX = x + border
           const squareY = y + border
           const squareSize = size * 8 - 2 * border
@@ -197,7 +266,7 @@
           const len = cidrBlock.split('/')[1]
           const max = Math.pow(2, 32 - len)
 
-          const squareSize = Math.max(16, Math.max(2 * Math.floor((Math.log2(scale) + 13)), Math.ceil(len / 2) * 2))
+          const squareSize = Math.max(2 * Math.floor((Math.log2(scale) + 13)), Math.ceil(len / 2) * 2)
           const squareCount = Math.pow(2, squareSize - len)
 
           for (let i = 0; i < squareCount; i++) {
@@ -224,7 +293,7 @@
           }
 
           // Keep the zoom level within a reasonable range
-          scale = Math.min(Math.max(1 / 100, scale), 10)
+          scale = Math.min(Math.max(1 / 1024, scale), 10)
 
           // Calculate how much the content should shift to keep the zoom centered on the mouse
           const scaleRatio = scale / prevScale
