@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/axios.min.js"></script>
     <title>CIDR Visualizer</title>
     <style>
         body {
@@ -78,32 +79,7 @@
         let highlightedSquare
         let smallestCIDRsContainingVP
         let vpMinX, vpMinY, vpMaxX, vpMaxY
-
-        const blocks = [
-          // 10.0.0.0/8
-          { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
-
-          // AZ
-          { block: '10.40.0.0/13', color: '#ccffcc' }, // Amsterdam
-          { block: '10.48.0.0/16', color: '#ccccff' }, // kbk
-
-          // Subnets Amsterdam
-          { block: '10.40.224.0/19', color: '#ccffff' },
-          { block: '10.40.0.0/19', color: '#ccffff' },
-          { block: '10.40.32.0/19', color: '#ccffff' },
-          { block: '10.40.64.0/19', color: '#ccffff' },
-          { block: '10.40.96.0/19', color: '#ccffff' },
-          { block: '10.40.128.0/19', color: '#ccffff' },
-          { block: '10.41.0.0/24', color: '#ccffff' },
-          { block: '10.41.2.0/23', color: '#ccffff' },
-          { block: '10.40.160.0/19', color: '#ccffff' },
-          { block: '10.41.160.0/19', color: '#ccffff' },
-          // wg Amsterdam
-          { block: '10.40.223.0/24', color: '#ffcccc' },
-          { block: '10.40.222.0/24', color: '#ffcccc' },
-          { block: '10.40.221.0/24', color: '#ffcccc' },
-          { block: '10.40.220.0/24', color: '#ffcccc' },
-        ]
+        let blocks = []
 
         const getSafeBlocks = (block) => {
           if (+smallestCIDRsContainingVP[0].split('/')[1] <= +block.split('/')[1]) {
@@ -164,12 +140,12 @@
           for (const block of blocks) {
             const safeBlocks = getSafeBlocks(block.block)
             for (safeBlock of safeBlocks) {
-              drawCIDRBlock(safeBlock, block.color)
+              drawCIDRBlock(safeBlock, block)
             }
           }
 
           if (highlightedSquare.name) {
-            drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, 'black', true)
+            drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, { color: 'black', comment: highlightedSquare.comment }, true)
           }
 
           // Restore the transformation matrix to its original state
@@ -237,7 +213,7 @@
           return combined;
         }
 
-        const drawSquare = (size, x, y, name, color, drawHighlighted) => {
+        const drawSquare = (size, x, y, name, { color, border: borderColor, comment }, drawHighlighted) => {
           if (
             !isPointVisible(x, y) &&
             !isPointVisible(x + size * 8, y) &&
@@ -246,32 +222,48 @@
           ) { return }
 
           const border = Math.log2(size + 1) / Math.sqrt(scale)
-          const squareX = x + border
-          const squareY = y + border
-          const squareSize = size * 8 - 2 * border
+          let squareX = x + border
+          let squareY = y + border
+          let squareSize = size * 8 - 2 * border
+
+          if (drawHighlighted) {
+            ctx.globalAlpha = 0.2
+            ctx.fillStyle = color
+            ctx.fillRect(squareX, squareY, squareSize, squareSize)
+            ctx.globalAlpha = 1
+            return
+          }
+
+          ctx.fillStyle = 'white'
+          ctx.fillRect(x, y , size * 8, size * 8)
+
+          if (borderColor) {
+            ctx.globalAlpha = 0.5
+            ctx.fillStyle = borderColor
+            ctx.fillRect(squareX, squareY, squareSize, squareSize)
+            ctx.globalAlpha = 1
+            squareX += border
+            squareY += border
+            squareSize -= 2 * border
+          }
+
+          ctx.fillStyle = color
+          ctx.fillRect(squareX, squareY, squareSize, squareSize)
+
           const highlighted = (
             mouseX > x && mouseX < (x + size * 8) &&
             mouseY > y && mouseY < (y + size * 8)
           )
-          if (drawHighlighted) {
-            ctx.globalAlpha = 0.2
-          } else {
-            ctx.fillStyle = 'white'
-            ctx.fillRect(x, y , size * 8, size * 8)
-          }
-          ctx.fillStyle = color
-          ctx.fillRect(squareX, squareY, squareSize, squareSize)
-          ctx.globalAlpha = 1
           if (highlighted && size <= highlightedSquare.size) {
             highlightedSquare = {
               size,
               x,
               y,
               name,
-              color,
+              comment,
             }
           }
-          highlighted && updateTooltip(name)
+          highlighted && updateTooltip(`${name} (${Math.pow(2, 32 - +name.split('/')[1]).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")})${comment ? `<br>${comment}` : ''}`)
         }
 
         const isPointVisible = (x, y) => {
@@ -286,7 +278,7 @@
           return isXVisible && isYVisible
         }
 
-        const drawCIDRBlock = (cidrBlock, color) => {
+        const drawCIDRBlock = (cidrBlock, settings) => {
           const start = Math.floor(getCidrBLockStart(cidrBlock) / Math.pow(2, 32 - cidrBlock.split('/')[1])) * Math.pow(2, 32 - cidrBlock.split('/')[1]) - START_OFFSET
           const len = cidrBlock.split('/')[1]
           const max = Math.pow(2, 32 - len)
@@ -296,7 +288,7 @@
 
           for (let i = 0; i < squareCount; i++) {
             const { x, y } = splitBinary(start + i * Math.pow(2, 32 - squareSize))
-            drawSquare(Math.pow(2, 16 - squareSize / 2), 8 * x, 8 * y, `${startToIp(START_OFFSET + start + i * Math.pow(2, 32 - squareSize))}/${squareSize}`, color)
+            drawSquare(Math.pow(2, 16 - squareSize / 2), 8 * x, 8 * y, `${startToIp(START_OFFSET + start + i * Math.pow(2, 32 - squareSize))}/${squareSize}`, settings)
           }
         }
 
@@ -352,8 +344,15 @@
           isDragging = false
         })
 
-        // Initial draw
-        draw()
+        axios.get('/blocks.example.json').then(result => {
+          blocks = [
+            { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
+            ...result.data
+          ]
+          // Initial draw
+          draw()
+        })
+        // draw()
     </script>
 </body>
 </html>

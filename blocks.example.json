@@ -1,0 +1,13 @@
+[
+  {
+    "block": "10.40.0.0/13",
+    "color": "#cccccc",
+    "comment": "BobJolan"
+  },
+  {
+    "block": "10.41.0.1/26",
+    "color": "#ccffcc",
+    "comment": "DHCP nucgaming",
+    "border": "blue"
+  }
+]
