@@ -344,14 +344,23 @@
           isDragging = false
         })
 
-        axios.get('/blocks.example.json').then(result => {
+        const b64Blocks = (new URL(window.location.href)).searchParams.get('blocks')
+        if (b64Blocks) {
           blocks = [
             { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
-            ...result.data
+            ...JSON.parse(atob(b64Blocks))
           ]
-          // Initial draw
+          console.log('Using blocks', blocks)
           draw()
-        })
+        } else {
+          axios.get('/blocks.local.json').then(result => {
+            blocks = [
+              { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
+              ...result.data
+            ]
+            draw()
+          })
+        }
         // draw()
     </script>
 </body>
