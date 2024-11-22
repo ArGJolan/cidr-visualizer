@@ -1,367 +1,374 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="/axios.min.js"></script>
-    <title>CIDR Visualizer</title>
-    <style>
-        body {
-          margin: 0;
-          overflow: hidden;
-        }
-        canvas {
-          display: block;
-          background-color: #f0f0f0;
-        }
-        canvas:active {
-          cursor: grabbing;
-        }
-        #tooltip {
-          position: absolute;
-          background-color: rgba(0, 0, 0, 0.4);
-          color: white;
-          padding: 5px;
-          border-radius: 4px;
-          pointer-events: none;
-          font-size: 12px;
-          display: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CIDR Visualizer</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      background-color: #f0f0f0;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    #tooltip {
+      position: absolute;
+      background-color: rgba(0, 0, 0, 0.4);
+      color: white;
+      padding: 5px;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 12px;
+      display: none;
+    }
+  </style>
 </head>
+
 <body>
-    <canvas id="canvas"></canvas>
-    <div id="tooltip" style="z-index: 100000;"></div>
+  <canvas id="canvas"></canvas>
+  <div id="tooltip" style="z-index: 100000;"></div>
 
-    <script>
-        const darken = (color, percent = 10) => {
-          const hex = color.replace('#', '')
+  <script>
+    const darken = (color, percent = 10) => {
+      const hex = color.replace('#', '')
 
-          let r = Math.floor(parseInt(hex.substring(0, 2), 16) * (1 - percent / 100))
-          let g = Math.floor(parseInt(hex.substring(2, 4), 16) * (1 - percent / 100))
-          let b = Math.floor(parseInt(hex.substring(4, 6), 16) * (1 - percent / 100))
-          return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+      let r = Math.floor(parseInt(hex.substring(0, 2), 16) * (1 - percent / 100))
+      let g = Math.floor(parseInt(hex.substring(2, 4), 16) * (1 - percent / 100))
+      let b = Math.floor(parseInt(hex.substring(4, 6), 16) * (1 - percent / 100))
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+    }
+
+    const getCidrBLockStart = (cidrBlock) => {
+      const ip = cidrBlock.split('/')[0].split('.')
+      return 256 * 256 * 256 * +ip[0] + 256 * 256 * +ip[1] + 256 * +ip[2] + +ip[3]
+    }
+
+    const updateTooltip = (text) => {
+      tooltip.style.left = panX + (mouseX * scale) + 15 + 'px'
+      tooltip.style.top = panY + (mouseY * scale) + 15 + 'px'
+      tooltip.innerHTML = text
+      tooltip.style.display = 'block'
+    }
+
+
+    const PARENT_CIDR_BLOCK = '10.0.0.0/8'
+    const START_OFFSET = getCidrBLockStart(PARENT_CIDR_BLOCK)
+    const maxBlock = 0
+    const canvas = document.getElementById('canvas')
+    const ctx = canvas.getContext('2d')
+    const tooltip = document.getElementById("tooltip")
+
+    // Set canvas size
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+
+    let scale = 0.028 // Initial zoom level
+    let scaleFactor = 1.03 // Zoom speed factor
+    let panX = 0 // Initial pan x offset
+    let panY = 0 // Initial pan y offset
+    let mouseX
+    let mouseY
+    let isDragging = false
+    let dragStartX, dragStartY
+    let squares
+    let highlightedSquare
+    let smallestCIDRsContainingVP
+    let vpMinX, vpMinY, vpMaxX, vpMaxY
+    let blocks = []
+
+    const getSafeBlocks = (block) => {
+      if (+smallestCIDRsContainingVP[0].split('/')[1] <= +block.split('/')[1]) {
+        return [block]
+      }
+      const result = []
+      for (const cornerBlock of smallestCIDRsContainingVP) {
+        if (CIDRinCIDR(cornerBlock, block)) {
+          result.push(cornerBlock)
         }
+      }
+      return result
+    }
 
-        const getCidrBLockStart = (cidrBlock) => {
-          const ip = cidrBlock.split('/')[0].split('.')
-          return 256 * 256 * 256 * +ip[0] + 256 * 256 * +ip[1] + 256 * +ip[2] + +ip[3]
+    const CIDRinCIDR = (a, b) => {
+      const startA = getCidrBLockStart(a)
+      const stopA = getCidrBLockStart(a) + Math.pow(2, 32 - a.split('/')[1])
+      const startB = getCidrBLockStart(b)
+      const stopB = getCidrBLockStart(b) + Math.pow(2, 32 - b.split('/')[1])
+
+      return (startA > startB && startA < stopB) || (stopA > startB && stopA < stopB)
+    }
+
+    const CIDRFromIpAndRange = (start, range) => {
+      return `${startToIp(Math.floor(start / Math.pow(2, 32 - range)) * Math.pow(2, 32 - range))}/${range}`
+    }
+
+    // Draw something on the canvas
+    const draw = () => {
+      vpMinX = 0 / scale - panX / scale
+      vpMinY = 0 / scale - panY / scale
+      vpMaxX = window.innerWidth / scale - panX / scale
+      vpMaxY = window.innerHeight / scale - panY / scale
+
+      const smallestCIDRSuffix = 2 * Math.floor((Math.log2(scale))) + 16
+      const currentIPs = [
+        combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
+        combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
+        combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
+        combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
+      ]
+      smallestCIDRsContainingVP = currentIPs.map(currentIP => CIDRFromIpAndRange(currentIP, smallestCIDRSuffix))
+
+      highlightedSquare = { size: Infinity }
+      squares = []
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = '#444444'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Save the current transformation matrix
+      ctx.save()
+
+      // Apply pan and zoom transformations
+      ctx.translate(panX, panY)
+      ctx.scale(scale, scale)
+
+      for (const block of blocks) {
+        const safeBlocks = getSafeBlocks(block.block)
+        for (safeBlock of safeBlocks) {
+          drawCIDRBlock(safeBlock, block)
         }
+      }
 
-        const updateTooltip = (text) => {
-          tooltip.style.left = panX + (mouseX * scale) + 15 + 'px'
-          tooltip.style.top = panY + (mouseY * scale) + 15 + 'px'
-          tooltip.innerHTML = text
-          tooltip.style.display = 'block'
-        }
+      if (highlightedSquare.name) {
+        drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, { color: 'black', comment: highlightedSquare.comment }, true)
+      }
 
+      // Restore the transformation matrix to its original state
+      ctx.restore()
+      squares.reverse()
+    }
 
-        const PARENT_CIDR_BLOCK = '10.0.0.0/8'
-        const START_OFFSET = getCidrBLockStart(PARENT_CIDR_BLOCK)
-        const maxBlock = 0
-        const canvas = document.getElementById('canvas')
-        const ctx = canvas.getContext('2d')
-        const tooltip = document.getElementById("tooltip")
+    const startToIp = (start) => {
+      const fourth = Math.floor(start % 256)
+      const third = Math.floor((start / 256) % 256)
+      const second = Math.floor((start / 256 / 256) % 256)
+      const first = Math.floor((start / 256 / 256 / 256) % 256)
+      return `${first}.${second}.${third}.${fourth}`
+    }
 
-        // Set canvas size
-        canvas.width = window.innerWidth
-        canvas.height = window.innerHeight
+    const splitBinary = (input) => {
+      let evenBits = 0
+      let oddBits = 0
 
-        let scale = 0.028 // Initial zoom level
-        let scaleFactor = 1.03 // Zoom speed factor
-        let panX = 0 // Initial pan x offset
-        let panY = 0 // Initial pan y offset
-        let mouseX
-        let mouseY
-        let isDragging = false
-        let dragStartX, dragStartY
-        let squares
-        let highlightedSquare
-        let smallestCIDRsContainingVP
-        let vpMinX, vpMinY, vpMaxX, vpMaxY
-        let blocks = []
+      let evenPos = 0
+      let oddPos = 0
 
-        const getSafeBlocks = (block) => {
-          if (+smallestCIDRsContainingVP[0].split('/')[1] <= +block.split('/')[1]) {
-            return [block]
-          }
-          const result = []
-          for (const cornerBlock of smallestCIDRsContainingVP) {
-            if (CIDRinCIDR(cornerBlock, block)) {
-              result.push(cornerBlock)
-            }
-          }
-          return result
-        }
+      let position = 0
 
-        const CIDRinCIDR = (a, b) => {
-          const startA = getCidrBLockStart(a)
-          const stopA = getCidrBLockStart(a) + Math.pow(2, 32 - a.split('/')[1])
-          const startB = getCidrBLockStart(b)
-          const stopB = getCidrBLockStart(b) + Math.pow(2, 32 - b.split('/')[1])
+      while (input > 0) {
+        let currentBit = input & 1 // Get the rightmost bit of the input
 
-          return (startA > startB && startA < stopB) || (stopA > startB && stopA < stopB)
-        }
-
-        const CIDRFromIpAndRange = (start, range) => {
-          return `${startToIp(Math.floor(start / Math.pow(2, 32 - range)) * Math.pow(2, 32 - range))}/${range}`
-        }
-
-        // Draw something on the canvas
-        const draw = () => {
-          vpMinX = 0 / scale - panX / scale
-          vpMinY = 0 / scale - panY / scale
-          vpMaxX = window.innerWidth / scale - panX / scale
-          vpMaxY = window.innerHeight / scale - panY / scale
-
-          const smallestCIDRSuffix = 2 * Math.floor((Math.log2(scale))) + 16
-          const currentIPs = [
-            combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
-            combineBinary(Math.floor(vpMinX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
-            combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMinY / 8)) + START_OFFSET,
-            combineBinary(Math.floor(vpMaxX / 8), Math.floor(vpMaxY / 8)) + START_OFFSET,
-          ]
-          smallestCIDRsContainingVP = currentIPs.map(currentIP => CIDRFromIpAndRange(currentIP, smallestCIDRSuffix))
-
-          highlightedSquare = { size: Infinity }
-          squares = []
-          // Clear canvas
-          ctx.clearRect(0, 0, canvas.width, canvas.height)
-          ctx.fillStyle = '#444444'
-          ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-          // Save the current transformation matrix
-          ctx.save()
-
-          // Apply pan and zoom transformations
-          ctx.translate(panX, panY)
-          ctx.scale(scale, scale)
-
-          for (const block of blocks) {
-            const safeBlocks = getSafeBlocks(block.block)
-            for (safeBlock of safeBlocks) {
-              drawCIDRBlock(safeBlock, block)
-            }
-          }
-
-          if (highlightedSquare.name) {
-            drawSquare(highlightedSquare.size, highlightedSquare.x, highlightedSquare.y, highlightedSquare.name, { color: 'black', comment: highlightedSquare.comment }, true)
-          }
-
-          // Restore the transformation matrix to its original state
-          ctx.restore()
-          squares.reverse()
-        }
-
-        const startToIp = (start) => {
-          const fourth = Math.floor(start % 256)
-          const third = Math.floor((start / 256) % 256)
-          const second = Math.floor((start / 256 / 256) % 256)
-          const first = Math.floor((start / 256 / 256 / 256) % 256)
-          return `${first}.${second}.${third}.${fourth}`
-        }
-
-        const splitBinary = (input) => {
-          let evenBits = 0
-          let oddBits = 0
-          
-          let evenPos = 0
-          let oddPos = 0
-          
-          let position = 0
-          
-          while (input > 0) {
-            let currentBit = input & 1 // Get the rightmost bit of the input
-            
-            if (!(position % 2)) {
-              evenBits |= (currentBit << evenPos)
-              evenPos++
-            } else {
-              oddBits |= (currentBit << oddPos)
-              oddPos++
-            }
-            
-            input >>= 1 // Shift input to the right to process the next bit
-            position++
-          }
-
-          return { x: evenBits, y: oddBits }
-        }
-
-        function combineBinary(evenBits, oddBits) {
-          let combined = 0;
-          let evenIndex = 0;
-          let oddIndex = 0;
-          let position = 0;  // Position in the final combined number
-
-          // Continue until both evenBits and oddBits are fully processed
-          while (evenBits > 0 || oddBits > 0) {
-            if (position % 2 === 0) {
-              // Even position: Take a bit from evenBits
-              let evenBit = evenBits & 1;
-              combined |= (evenBit << position);  // Place evenBit at the current position
-              evenBits >>= 1;  // Shift right to process the next even bit
-            } else {
-              // Odd position: Take a bit from oddBits
-              let oddBit = oddBits & 1;
-              combined |= (oddBit << position);  // Place oddBit at the current position
-              oddBits >>= 1;  // Shift right to process the next odd bit
-            }
-            position++;
-          }
-
-          return combined;
-        }
-
-        const drawSquare = (size, x, y, name, { color, border: borderColor, comment }, drawHighlighted) => {
-          if (
-            !isPointVisible(x, y) &&
-            !isPointVisible(x + size * 8, y) &&
-            !isPointVisible(x, y + size * 8) &&
-            !isPointVisible(x + size * 8, y + size * 8)
-          ) { return }
-
-          const border = Math.log2(size + 1) / Math.sqrt(scale)
-          let squareX = x + border
-          let squareY = y + border
-          let squareSize = size * 8 - 2 * border
-
-          if (drawHighlighted) {
-            ctx.globalAlpha = 0.2
-            ctx.fillStyle = color
-            ctx.fillRect(squareX, squareY, squareSize, squareSize)
-            ctx.globalAlpha = 1
-            return
-          }
-
-          ctx.fillStyle = 'white'
-          ctx.fillRect(x, y , size * 8, size * 8)
-
-          if (borderColor) {
-            ctx.globalAlpha = 0.5
-            ctx.fillStyle = borderColor
-            ctx.fillRect(squareX, squareY, squareSize, squareSize)
-            ctx.globalAlpha = 1
-            squareX += border
-            squareY += border
-            squareSize -= 2 * border
-          }
-
-          ctx.fillStyle = color
-          ctx.fillRect(squareX, squareY, squareSize, squareSize)
-
-          const highlighted = (
-            mouseX > x && mouseX < (x + size * 8) &&
-            mouseY > y && mouseY < (y + size * 8)
-          )
-          if (highlighted && size <= highlightedSquare.size) {
-            highlightedSquare = {
-              size,
-              x,
-              y,
-              name,
-              comment,
-            }
-          }
-          highlighted && updateTooltip(`${name} (${Math.pow(2, 32 - +name.split('/')[1]).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")})${comment ? `<br>${comment}` : ''}`)
-        }
-
-        const isPointVisible = (x, y) => {
-          // Transform the point coordinates based on the current pan and zoom
-          const transformedX = (x * scale) + panX
-          const transformedY = (y * scale) + panY
-
-          // Check if the transformed point is within the bounds of the canvas
-          const isXVisible = transformedX >= 0 && transformedX <= canvas.width
-          const isYVisible = transformedY >= 0 && transformedY <= canvas.height
-
-          return isXVisible && isYVisible
-        }
-
-        const drawCIDRBlock = (cidrBlock, settings) => {
-          const start = Math.floor(getCidrBLockStart(cidrBlock) / Math.pow(2, 32 - cidrBlock.split('/')[1])) * Math.pow(2, 32 - cidrBlock.split('/')[1]) - START_OFFSET
-          const len = cidrBlock.split('/')[1]
-          const max = Math.pow(2, 32 - len)
-
-          const squareSize = Math.max(2 * Math.floor((Math.log2(scale) + 13)), Math.ceil(len / 2) * 2)
-          const squareCount = Math.pow(2, squareSize - len)
-
-          for (let i = 0; i < squareCount; i++) {
-            const { x, y } = splitBinary(start + i * Math.pow(2, 32 - squareSize))
-            drawSquare(Math.pow(2, 16 - squareSize / 2), 8 * x, 8 * y, `${startToIp(START_OFFSET + start + i * Math.pow(2, 32 - squareSize))}/${squareSize}`, settings)
-          }
-        }
-
-        // SECTION: Mouse events
-        canvas.addEventListener('wheel', (event) => {
-          event.preventDefault()
-
-          const mouseX = event.offsetX
-          const mouseY = event.offsetY
-
-          const zoom = event.deltaY < 0 ? 1 : -1
-          const prevScale = scale
-
-          // Adjust the scale based on zoom direction
-          if (zoom > 0) {
-            scale *= scaleFactor
-          } else {
-            scale /= scaleFactor
-          }
-
-          // Keep the zoom level within a reasonable range
-          scale = Math.min(Math.max(1 / 1024, scale), 10)
-
-          // Calculate how much the content should shift to keep the zoom centered on the mouse
-          const scaleRatio = scale / prevScale
-          panX = mouseX - scaleRatio * (mouseX - panX)
-          panY = mouseY - scaleRatio * (mouseY - panY)
-
-          draw()
-        })
-
-        canvas.addEventListener('mousedown', (event) => {
-          isDragging = true
-          dragStartX = event.clientX - panX
-          dragStartY = event.clientY - panY
-        })
-
-        canvas.addEventListener('mousemove', (event) => {
-          if (isDragging) {
-            panX = event.clientX - dragStartX
-            panY = event.clientY - dragStartY
-          }
-          mouseX = event.clientX / scale - panX / scale
-          mouseY = event.clientY / scale - panY / scale
-          draw()
-        })
-
-        canvas.addEventListener('mouseup', () => {
-          isDragging = false
-        })
-
-        canvas.addEventListener('mouseout', () => {
-          isDragging = false
-        })
-
-        const b64Blocks = (new URL(window.location.href)).searchParams.get('blocks')
-        if (b64Blocks) {
-          blocks = [
-            { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
-            ...JSON.parse(atob(b64Blocks))
-          ]
-          console.log('Using blocks', blocks)
-          draw()
+        if (!(position % 2)) {
+          evenBits |= (currentBit << evenPos)
+          evenPos++
         } else {
-          axios.get('/blocks.local.json').then(result => {
-            blocks = [
-              { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
-              ...result.data
-            ]
-            draw()
-          })
+          oddBits |= (currentBit << oddPos)
+          oddPos++
         }
-        // draw()
-    </script>
+
+        input >>= 1 // Shift input to the right to process the next bit
+        position++
+      }
+
+      return { x: evenBits, y: oddBits }
+    }
+
+    function combineBinary(evenBits, oddBits) {
+      let combined = 0;
+      let evenIndex = 0;
+      let oddIndex = 0;
+      let position = 0;  // Position in the final combined number
+
+      // Continue until both evenBits and oddBits are fully processed
+      while (evenBits > 0 || oddBits > 0) {
+        if (position % 2 === 0) {
+          // Even position: Take a bit from evenBits
+          let evenBit = evenBits & 1;
+          combined |= (evenBit << position);  // Place evenBit at the current position
+          evenBits >>= 1;  // Shift right to process the next even bit
+        } else {
+          // Odd position: Take a bit from oddBits
+          let oddBit = oddBits & 1;
+          combined |= (oddBit << position);  // Place oddBit at the current position
+          oddBits >>= 1;  // Shift right to process the next odd bit
+        }
+        position++;
+      }
+
+      return combined;
+    }
+
+    const drawSquare = (size, x, y, name, { color, border: borderColor, comment }, drawHighlighted) => {
+      if (
+        !isPointVisible(x, y) &&
+        !isPointVisible(x + size * 8, y) &&
+        !isPointVisible(x, y + size * 8) &&
+        !isPointVisible(x + size * 8, y + size * 8)
+      ) { return }
+
+      const border = Math.log2(size + 1) / Math.sqrt(scale)
+      let squareX = x + border
+      let squareY = y + border
+      let squareSize = size * 8 - 2 * border
+
+      if (drawHighlighted) {
+        ctx.globalAlpha = 0.2
+        ctx.fillStyle = color
+        ctx.fillRect(squareX, squareY, squareSize, squareSize)
+        ctx.globalAlpha = 1
+        return
+      }
+
+      ctx.fillStyle = 'white'
+      ctx.fillRect(x, y, size * 8, size * 8)
+
+      if (borderColor) {
+        ctx.globalAlpha = 0.5
+        ctx.fillStyle = borderColor
+        ctx.fillRect(squareX, squareY, squareSize, squareSize)
+        ctx.globalAlpha = 1
+        squareX += border
+        squareY += border
+        squareSize -= 2 * border
+      }
+
+      ctx.fillStyle = color
+      ctx.fillRect(squareX, squareY, squareSize, squareSize)
+
+      const highlighted = (
+        mouseX > x && mouseX < (x + size * 8) &&
+        mouseY > y && mouseY < (y + size * 8)
+      )
+      if (highlighted && size <= highlightedSquare.size) {
+        highlightedSquare = {
+          size,
+          x,
+          y,
+          name,
+          comment,
+        }
+      }
+      highlighted && updateTooltip(`${name} (${Math.pow(2, 32 - +name.split('/')[1]).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")})${comment ? `<br>${comment}` : ''}`)
+    }
+
+    const isPointVisible = (x, y) => {
+      // Transform the point coordinates based on the current pan and zoom
+      const transformedX = (x * scale) + panX
+      const transformedY = (y * scale) + panY
+
+      // Check if the transformed point is within the bounds of the canvas
+      const isXVisible = transformedX >= 0 && transformedX <= canvas.width
+      const isYVisible = transformedY >= 0 && transformedY <= canvas.height
+
+      return isXVisible && isYVisible
+    }
+
+    const drawCIDRBlock = (cidrBlock, settings) => {
+      const start = Math.floor(getCidrBLockStart(cidrBlock) / Math.pow(2, 32 - cidrBlock.split('/')[1])) * Math.pow(2, 32 - cidrBlock.split('/')[1]) - START_OFFSET
+      const len = cidrBlock.split('/')[1]
+      const max = Math.pow(2, 32 - len)
+
+      const squareSize = Math.max(2 * Math.floor((Math.log2(scale) + 13)), Math.ceil(len / 2) * 2)
+      const squareCount = Math.pow(2, squareSize - len)
+
+      for (let i = 0; i < squareCount; i++) {
+        const { x, y } = splitBinary(start + i * Math.pow(2, 32 - squareSize))
+        drawSquare(Math.pow(2, 16 - squareSize / 2), 8 * x, 8 * y, `${startToIp(START_OFFSET + start + i * Math.pow(2, 32 - squareSize))}/${squareSize}`, settings)
+      }
+    }
+
+    // SECTION: Mouse events
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault()
+
+      const mouseX = event.offsetX
+      const mouseY = event.offsetY
+
+      const zoom = event.deltaY < 0 ? 1 : -1
+      const prevScale = scale
+
+      // Adjust the scale based on zoom direction
+      if (zoom > 0) {
+        scale *= scaleFactor
+      } else {
+        scale /= scaleFactor
+      }
+
+      // Keep the zoom level within a reasonable range
+      scale = Math.min(Math.max(1 / 1024, scale), 10)
+
+      // Calculate how much the content should shift to keep the zoom centered on the mouse
+      const scaleRatio = scale / prevScale
+      panX = mouseX - scaleRatio * (mouseX - panX)
+      panY = mouseY - scaleRatio * (mouseY - panY)
+
+      draw()
+    })
+
+    canvas.addEventListener('mousedown', (event) => {
+      isDragging = true
+      dragStartX = event.clientX - panX
+      dragStartY = event.clientY - panY
+    })
+
+    canvas.addEventListener('mousemove', (event) => {
+      if (isDragging) {
+        panX = event.clientX - dragStartX
+        panY = event.clientY - dragStartY
+      }
+      mouseX = event.clientX / scale - panX / scale
+      mouseY = event.clientY / scale - panY / scale
+      draw()
+    })
+
+    canvas.addEventListener('mouseup', () => {
+      isDragging = false
+    })
+
+    canvas.addEventListener('mouseout', () => {
+      isDragging = false
+    })
+
+    const b64Blocks = (new URL(window.location.href)).searchParams.get('blocks')
+    if (b64Blocks) {
+      blocks = [
+        { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },
+        ...JSON.parse(atob(b64Blocks))
+      ]
+      console.log('Using blocks', blocks)
+      draw()
+    } else {
+      fetch('blocks.local.json')
+        .then(res => res.json())
+        .then(result => {
+          blocks = [
+            { block: PARENT_CIDR_BLOCK, color: '#dddd22' },
+            ...result
+          ]
+          draw()
+        })
+    }
+    // draw()
+  </script>
 </body>
+
 </html>
