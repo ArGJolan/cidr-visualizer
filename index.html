@@ -348,7 +348,7 @@
       isDragging = false
     })
 
-    const b64Blocks = (new URL(window.location.href)).searchParams.get('blocks')
+    const b64Blocks = window.location.hash.split('#')[1]
     if (b64Blocks) {
       blocks = [
         { block: PARENT_CIDR_BLOCK, color: '#aaaaaa' },

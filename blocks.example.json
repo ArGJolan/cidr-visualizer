@@ -1,13 +1,73 @@
 [
   {
-    "block": "10.40.0.0/13",
-    "color": "#cccccc",
-    "comment": "BobJolan"
+    "block": "10.0.0.0/8",
+    "color": "#888888",
+    "comment": "Available"
   },
   {
-    "block": "10.41.0.1/26",
-    "color": "#ccffcc",
-    "comment": "DHCP nucgaming",
+    "block": "10.128.0.0/15",
+    "color": "#cccccc",
+    "comment": "My House / Unasigned"
+  },
+  {
+    "block": "10.192.0.0/15",
+    "color": "#003865",
+    "comment": "Fiona's House"
+  },
+  {
+    "block": "10.52.0.0/16",
+    "color": "#650038",
+    "comment": "Mickael's House"
+  },
+  {
+    "block": "10.128.0.1/19",
+    "color": "#ffc46c",
+    "comment": "VLAN admin"
+  },
+  {
+    "block": "10.128.32.1/19",
+    "color": "#ffb1df",
+    "comment": "VLAN home"
+  },
+  {
+    "block": "10.128.64.1/19",
+    "color": "#cd878a",
+    "comment": "VLAN guest"
+  },
+  {
+    "block": "10.128.0.1/22",
+    "color": "#ffc46c",
+    "comment": "DHCP admin",
     "border": "blue"
+  },
+  {
+    "block": "10.128.32.1/22",
+    "color": "#ffb1df",
+    "comment": "DHCP home",
+    "border": "blue"
+  },
+  {
+    "block": "10.128.64.1/22",
+    "color": "#cd878a",
+    "comment": "DHCP guest",
+    "border": "blue"
+  },
+  {
+    "block": "10.128.223.1/24",
+    "color": "#ffc46c",
+    "comment": "Wireguard admin",
+    "border": "red"
+  },
+  {
+    "block": "10.128.222.1/24",
+    "color": "#ffb1df",
+    "comment": "Wireguard home",
+    "border": "red"
+  },
+  {
+    "block": "10.128.221.1/24",
+    "color": "#cd878a",
+    "comment": "Wireguard guest",
+    "border": "red"
   }
 ]
