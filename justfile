@@ -3,3 +3,7 @@ up:
   docker rm -f local-cidr-visualiser || true
   docker run -it --name local-cidr-visualiser -p 19090:80 -d cidr-visualiser
   echo "http://localhost:19090"
+
+example:
+  cp blocks.example.json blocks.local.json
+  just up

@@ -11,12 +11,8 @@ A tool to visualize your networks with a single static webpage.
 ## Build / run instructions
 
 ```bash
-$ cp blocks.example.json blocks.local.json
-$ docker build . -t cidr-visualizer
-$ docker run -p 8080:80 cidr-visualizer
+$ just example
 ```
-
-Then visit http://localhost:8080
 
 ## Dynamic config
 
